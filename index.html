@@ -93,6 +93,33 @@
       transform: translateY(0) scale(1);
     }
 
+    .tooltip-name {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .tooltip-capital {
+      font-size: 12px;
+      color: #8a8aaa;
+      margin-top: 2px;
+    }
+
+    .capital-dot {
+      fill: #ff6b6b;
+      stroke: #fff;
+      stroke-width: 1.2;
+      filter: drop-shadow(0 0 4px rgba(255, 107, 107, 0.6));
+    }
+
+    .capital-label {
+      fill: #fff;
+      font-size: 10px;
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-weight: 600;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+      pointer-events: none;
+    }
+
     .controls {
       position: fixed;
       bottom: 24px;
@@ -177,7 +204,10 @@
 
   <div id="globe-container"></div>
 
-  <div id="tooltip" id="tooltip-name"></div>
+  <div id="tooltip">
+    <div class="tooltip-name" id="tooltip-name"></div>
+    <div class="tooltip-capital" id="tooltip-capital"></div>
+  </div>
 
   <div class="controls">
     <button id="zoom-in" title="Zoom in">+</button>
@@ -197,9 +227,13 @@
     (async function() {
       const container = document.getElementById('globe-container');
       const tooltip = document.getElementById('tooltip');
+      const tooltipName = document.getElementById('tooltip-name');
+      const tooltipCapital = document.getElementById('tooltip-capital');
       const countEl = document.getElementById('count');
       const totalEl = document.getElementById('total');
       const loading = document.getElementById('loading');
+      let capitalDot = null;
+      let capitalLabel = null;
 
       let width = window.innerWidth;
       let height = window.innerHeight;
@@ -244,61 +278,207 @@
         .attr('stroke-width', 0.4)
         .attr('class', 'graticule-path');
 
-      // ISO 3166-1 numeric ID → country name lookup
-      const countryNames = new Map([
-        ["004","Afghanistan"],["008","Albania"],["012","Algeria"],["016","American Samoa"],
-        ["020","Andorra"],["024","Angola"],["028","Antigua and Barbuda"],["031","Azerbaijan"],
-        ["032","Argentina"],["036","Australia"],["040","Austria"],["044","Bahamas"],
-        ["048","Bahrain"],["050","Bangladesh"],["051","Armenia"],["052","Barbados"],
-        ["056","Belgium"],["060","Bermuda"],["064","Bhutan"],["068","Bolivia"],
-        ["070","Bosnia and Herzegovina"],["072","Botswana"],["076","Brazil"],
-        ["084","Belize"],["090","Solomon Islands"],["096","Brunei"],["100","Bulgaria"],
-        ["104","Myanmar"],["108","Burundi"],["112","Belarus"],["116","Cambodia"],
-        ["120","Cameroon"],["124","Canada"],["132","Cape Verde"],["140","Central African Republic"],
-        ["144","Sri Lanka"],["148","Chad"],["152","Chile"],["156","China"],
-        ["158","Taiwan"],["170","Colombia"],["174","Comoros"],["178","Congo"],
-        ["180","Dem. Rep. Congo"],["188","Costa Rica"],["191","Croatia"],["192","Cuba"],
-        ["196","Cyprus"],["203","Czech Republic"],["204","Benin"],["208","Denmark"],
-        ["212","Dominica"],["214","Dominican Republic"],["218","Ecuador"],["222","El Salvador"],
-        ["226","Equatorial Guinea"],["231","Ethiopia"],["232","Eritrea"],["233","Estonia"],
-        ["242","Fiji"],["246","Finland"],["250","France"],["254","French Guiana"],
-        ["262","Djibouti"],["266","Gabon"],["268","Georgia"],["270","Gambia"],
-        ["275","Palestine"],["276","Germany"],["288","Ghana"],["296","Kiribati"],
-        ["300","Greece"],["308","Grenada"],["320","Guatemala"],["324","Guinea"],
-        ["328","Guyana"],["332","Haiti"],["340","Honduras"],["348","Hungary"],
-        ["352","Iceland"],["356","India"],["360","Indonesia"],["364","Iran"],
-        ["368","Iraq"],["372","Ireland"],["376","Israel"],["380","Italy"],
-        ["384","Ivory Coast"],["388","Jamaica"],["392","Japan"],["398","Kazakhstan"],
-        ["400","Jordan"],["404","Kenya"],["408","North Korea"],["410","South Korea"],
-        ["414","Kuwait"],["417","Kyrgyzstan"],["418","Laos"],["422","Lebanon"],
-        ["426","Lesotho"],["428","Latvia"],["430","Liberia"],["434","Libya"],
-        ["438","Liechtenstein"],["440","Lithuania"],["442","Luxembourg"],["450","Madagascar"],
-        ["454","Malawi"],["458","Malaysia"],["462","Maldives"],["466","Mali"],
-        ["470","Malta"],["478","Mauritania"],["480","Mauritius"],["484","Mexico"],
-        ["492","Monaco"],["496","Mongolia"],["498","Moldova"],["499","Montenegro"],
-        ["504","Morocco"],["508","Mozambique"],["512","Oman"],["516","Namibia"],
-        ["520","Nauru"],["524","Nepal"],["528","Netherlands"],["540","New Caledonia"],
-        ["548","Vanuatu"],["554","New Zealand"],["558","Nicaragua"],["562","Niger"],
-        ["566","Nigeria"],["578","Norway"],["586","Pakistan"],["591","Panama"],
-        ["598","Papua New Guinea"],["600","Paraguay"],["604","Peru"],["608","Philippines"],
-        ["616","Poland"],["620","Portugal"],["624","Guinea-Bissau"],["626","Timor-Leste"],
-        ["630","Puerto Rico"],["634","Qatar"],["642","Romania"],["643","Russia"],
-        ["646","Rwanda"],["652","Saint Barthélemy"],["659","Saint Kitts and Nevis"],
-        ["662","Saint Lucia"],["670","Saint Vincent and the Grenadines"],
-        ["674","San Marino"],["678","São Tomé and Príncipe"],["682","Saudi Arabia"],
-        ["686","Senegal"],["688","Serbia"],["690","Seychelles"],["694","Sierra Leone"],
-        ["702","Singapore"],["703","Slovakia"],["704","Vietnam"],["705","Slovenia"],
-        ["706","Somalia"],["710","South Africa"],["716","Zimbabwe"],["724","Spain"],
-        ["728","South Sudan"],["729","Sudan"],["732","Western Sahara"],["740","Suriname"],
-        ["748","Eswatini"],["752","Sweden"],["756","Switzerland"],["760","Syria"],
-        ["762","Tajikistan"],["764","Thailand"],["768","Togo"],["776","Tonga"],
-        ["780","Trinidad and Tobago"],["784","United Arab Emirates"],["788","Tunisia"],
-        ["792","Turkey"],["795","Turkmenistan"],["798","Tuvalu"],["800","Uganda"],
-        ["804","Ukraine"],["807","North Macedonia"],["818","Egypt"],
-        ["826","United Kingdom"],["834","Tanzania"],["840","United States of America"],
-        ["854","Burkina Faso"],["858","Uruguay"],["860","Uzbekistan"],["862","Venezuela"],
-        ["882","Samoa"],["887","Yemen"],["894","Zambia"],
-        ["-99","Northern Cyprus"],["010","Antarctica"]
+      // ISO 3166-1 numeric ID → { name, capital, coords: [lng, lat] }
+      const countryData = new Map([
+        ["004",{n:"Afghanistan",c:"Kabul",p:[69.17,34.53]}],
+        ["008",{n:"Albania",c:"Tirana",p:[19.82,41.33]}],
+        ["012",{n:"Algeria",c:"Algiers",p:[3.04,36.77]}],
+        ["016",{n:"American Samoa",c:"Pago Pago",p:[-170.7,-14.27]}],
+        ["020",{n:"Andorra",c:"Andorra la Vella",p:[1.52,42.51]}],
+        ["024",{n:"Angola",c:"Luanda",p:[13.23,-8.84]}],
+        ["028",{n:"Antigua and Barbuda",c:"St. John's",p:[-61.85,17.12]}],
+        ["031",{n:"Azerbaijan",c:"Baku",p:[49.87,40.41]}],
+        ["032",{n:"Argentina",c:"Buenos Aires",p:[-58.38,-34.6]}],
+        ["036",{n:"Australia",c:"Canberra",p:[149.13,-35.28]}],
+        ["040",{n:"Austria",c:"Vienna",p:[16.37,48.21]}],
+        ["044",{n:"Bahamas",c:"Nassau",p:[-77.34,25.06]}],
+        ["048",{n:"Bahrain",c:"Manama",p:[50.58,26.23]}],
+        ["050",{n:"Bangladesh",c:"Dhaka",p:[90.41,23.71]}],
+        ["051",{n:"Armenia",c:"Yerevan",p:[44.51,40.18]}],
+        ["052",{n:"Barbados",c:"Bridgetown",p:[-59.62,13.1]}],
+        ["056",{n:"Belgium",c:"Brussels",p:[4.35,50.85]}],
+        ["060",{n:"Bermuda",c:"Hamilton",p:[-64.78,32.29]}],
+        ["064",{n:"Bhutan",c:"Thimphu",p:[89.64,27.47]}],
+        ["068",{n:"Bolivia",c:"Sucre",p:[-65.26,-19.04]}],
+        ["070",{n:"Bosnia and Herzegovina",c:"Sarajevo",p:[18.41,43.86]}],
+        ["072",{n:"Botswana",c:"Gaborone",p:[25.91,-24.65]}],
+        ["076",{n:"Brazil",c:"Brasilia",p:[-47.88,-15.79]}],
+        ["084",{n:"Belize",c:"Belmopan",p:[-88.77,17.25]}],
+        ["090",{n:"Solomon Islands",c:"Honiara",p:[159.95,-9.43]}],
+        ["096",{n:"Brunei",c:"Bandar Seri Begawan",p:[114.95,4.94]}],
+        ["100",{n:"Bulgaria",c:"Sofia",p:[23.32,42.7]}],
+        ["104",{n:"Myanmar",c:"Naypyidaw",p:[96.13,19.76]}],
+        ["108",{n:"Burundi",c:"Gitega",p:[29.93,-3.43]}],
+        ["112",{n:"Belarus",c:"Minsk",p:[27.57,53.9]}],
+        ["116",{n:"Cambodia",c:"Phnom Penh",p:[104.92,11.56]}],
+        ["120",{n:"Cameroon",c:"Yaoundé",p:[11.52,3.87]}],
+        ["124",{n:"Canada",c:"Ottawa",p:[-75.7,45.42]}],
+        ["132",{n:"Cape Verde",c:"Praia",p:[-23.51,14.93]}],
+        ["140",{n:"Central African Republic",c:"Bangui",p:[18.56,4.36]}],
+        ["144",{n:"Sri Lanka",c:"Sri Jayawardenepura Kotte",p:[79.89,6.89]}],
+        ["148",{n:"Chad",c:"N'Djamena",p:[15.04,12.11]}],
+        ["152",{n:"Chile",c:"Santiago",p:[-70.67,-33.45]}],
+        ["156",{n:"China",c:"Beijing",p:[116.41,39.9]}],
+        ["158",{n:"Taiwan",c:"Taipei",p:[121.56,25.04]}],
+        ["170",{n:"Colombia",c:"Bogotá",p:[-74.07,4.71]}],
+        ["174",{n:"Comoros",c:"Moroni",p:[43.26,-11.7]}],
+        ["178",{n:"Congo",c:"Brazzaville",p:[15.28,-4.27]}],
+        ["180",{n:"Dem. Rep. Congo",c:"Kinshasa",p:[15.31,-4.32]}],
+        ["188",{n:"Costa Rica",c:"San José",p:[-84.08,9.93]}],
+        ["191",{n:"Croatia",c:"Zagreb",p:[15.98,45.81]}],
+        ["192",{n:"Cuba",c:"Havana",p:[-82.37,23.11]}],
+        ["196",{n:"Cyprus",c:"Nicosia",p:[33.37,35.17]}],
+        ["203",{n:"Czech Republic",c:"Prague",p:[14.42,50.08]}],
+        ["204",{n:"Benin",c:"Porto-Novo",p:[2.62,6.5]}],
+        ["208",{n:"Denmark",c:"Copenhagen",p:[12.57,55.68]}],
+        ["212",{n:"Dominica",c:"Roseau",p:[-61.39,15.3]}],
+        ["214",{n:"Dominican Republic",c:"Santo Domingo",p:[-69.9,18.47]}],
+        ["218",{n:"Ecuador",c:"Quito",p:[-78.5,-0.23]}],
+        ["222",{n:"El Salvador",c:"San Salvador",p:[-89.19,13.69]}],
+        ["226",{n:"Equatorial Guinea",c:"Malabo",p:[8.78,3.75]}],
+        ["231",{n:"Ethiopia",c:"Addis Ababa",p:[38.75,9.02]}],
+        ["232",{n:"Eritrea",c:"Asmara",p:[38.93,15.34]}],
+        ["233",{n:"Estonia",c:"Tallinn",p:[24.75,59.44]}],
+        ["242",{n:"Fiji",c:"Suva",p:[178.44,-18.14]}],
+        ["246",{n:"Finland",c:"Helsinki",p:[24.94,60.17]}],
+        ["250",{n:"France",c:"Paris",p:[2.35,48.86]}],
+        ["262",{n:"Djibouti",c:"Djibouti",p:[43.15,11.59]}],
+        ["266",{n:"Gabon",c:"Libreville",p:[9.45,0.39]}],
+        ["268",{n:"Georgia",c:"Tbilisi",p:[44.79,41.72]}],
+        ["270",{n:"Gambia",c:"Banjul",p:[-16.58,13.45]}],
+        ["275",{n:"Palestine",c:"Ramallah",p:[35.2,31.9]}],
+        ["276",{n:"Germany",c:"Berlin",p:[13.41,52.52]}],
+        ["288",{n:"Ghana",c:"Accra",p:[-0.19,5.56]}],
+        ["296",{n:"Kiribati",c:"Tarawa",p:[172.98,1.33]}],
+        ["300",{n:"Greece",c:"Athens",p:[23.73,37.98]}],
+        ["308",{n:"Grenada",c:"St. George's",p:[-61.75,12.05]}],
+        ["320",{n:"Guatemala",c:"Guatemala City",p:[-90.53,14.63]}],
+        ["324",{n:"Guinea",c:"Conakry",p:[-13.68,9.54]}],
+        ["328",{n:"Guyana",c:"Georgetown",p:[-58.15,6.8]}],
+        ["332",{n:"Haiti",c:"Port-au-Prince",p:[-72.34,18.54]}],
+        ["340",{n:"Honduras",c:"Tegucigalpa",p:[-87.22,14.08]}],
+        ["348",{n:"Hungary",c:"Budapest",p:[19.04,47.5]}],
+        ["352",{n:"Iceland",c:"Reykjavik",p:[-21.9,64.14]}],
+        ["356",{n:"India",c:"New Delhi",p:[77.21,28.61]}],
+        ["360",{n:"Indonesia",c:"Jakarta",p:[106.85,-6.21]}],
+        ["364",{n:"Iran",c:"Tehran",p:[51.42,35.69]}],
+        ["368",{n:"Iraq",c:"Baghdad",p:[44.37,33.31]}],
+        ["372",{n:"Ireland",c:"Dublin",p:[-6.26,53.35]}],
+        ["376",{n:"Israel",c:"Jerusalem",p:[35.23,31.77]}],
+        ["380",{n:"Italy",c:"Rome",p:[12.5,41.9]}],
+        ["384",{n:"Ivory Coast",c:"Yamoussoukro",p:[-5.28,6.82]}],
+        ["388",{n:"Jamaica",c:"Kingston",p:[-76.79,18.0]}],
+        ["392",{n:"Japan",c:"Tokyo",p:[139.69,35.69]}],
+        ["398",{n:"Kazakhstan",c:"Astana",p:[71.43,51.17]}],
+        ["400",{n:"Jordan",c:"Amman",p:[35.93,31.95]}],
+        ["404",{n:"Kenya",c:"Nairobi",p:[36.82,-1.29]}],
+        ["408",{n:"North Korea",c:"Pyongyang",p:[125.75,39.02]}],
+        ["410",{n:"South Korea",c:"Seoul",p:[126.98,37.57]}],
+        ["414",{n:"Kuwait",c:"Kuwait City",p:[47.98,29.37]}],
+        ["417",{n:"Kyrgyzstan",c:"Bishkek",p:[74.59,42.87]}],
+        ["418",{n:"Laos",c:"Vientiane",p:[102.63,17.97]}],
+        ["422",{n:"Lebanon",c:"Beirut",p:[35.5,33.89]}],
+        ["426",{n:"Lesotho",c:"Maseru",p:[27.48,-29.31]}],
+        ["428",{n:"Latvia",c:"Riga",p:[24.11,56.95]}],
+        ["430",{n:"Liberia",c:"Monrovia",p:[-10.8,6.3]}],
+        ["434",{n:"Libya",c:"Tripoli",p:[13.18,32.9]}],
+        ["438",{n:"Liechtenstein",c:"Vaduz",p:[9.52,47.14]}],
+        ["440",{n:"Lithuania",c:"Vilnius",p:[25.28,54.69]}],
+        ["442",{n:"Luxembourg",c:"Luxembourg",p:[6.13,49.61]}],
+        ["450",{n:"Madagascar",c:"Antananarivo",p:[47.52,-18.91]}],
+        ["454",{n:"Malawi",c:"Lilongwe",p:[33.79,-13.97]}],
+        ["458",{n:"Malaysia",c:"Kuala Lumpur",p:[101.69,3.14]}],
+        ["462",{n:"Maldives",c:"Malé",p:[73.51,4.18]}],
+        ["466",{n:"Mali",c:"Bamako",p:[-8.0,12.65]}],
+        ["470",{n:"Malta",c:"Valletta",p:[14.51,35.9]}],
+        ["478",{n:"Mauritania",c:"Nouakchott",p:[-15.98,18.09]}],
+        ["480",{n:"Mauritius",c:"Port Louis",p:[57.5,-20.16]}],
+        ["484",{n:"Mexico",c:"Mexico City",p:[-99.13,19.43]}],
+        ["492",{n:"Monaco",c:"Monaco",p:[7.42,43.73]}],
+        ["496",{n:"Mongolia",c:"Ulaanbaatar",p:[106.91,47.92]}],
+        ["498",{n:"Moldova",c:"Chișinău",p:[28.86,47.01]}],
+        ["499",{n:"Montenegro",c:"Podgorica",p:[19.26,42.44]}],
+        ["504",{n:"Morocco",c:"Rabat",p:[-6.84,34.01]}],
+        ["508",{n:"Mozambique",c:"Maputo",p:[32.57,-25.97]}],
+        ["512",{n:"Oman",c:"Muscat",p:[58.54,23.61]}],
+        ["516",{n:"Namibia",c:"Windhoek",p:[17.08,-22.56]}],
+        ["520",{n:"Nauru",c:"Yaren",p:[166.92,-0.55]}],
+        ["524",{n:"Nepal",c:"Kathmandu",p:[85.32,27.72]}],
+        ["528",{n:"Netherlands",c:"Amsterdam",p:[4.9,52.37]}],
+        ["540",{n:"New Caledonia",c:"Nouméa",p:[166.46,-22.28]}],
+        ["548",{n:"Vanuatu",c:"Port Vila",p:[168.32,-17.73]}],
+        ["554",{n:"New Zealand",c:"Wellington",p:[174.78,-41.29]}],
+        ["558",{n:"Nicaragua",c:"Managua",p:[-86.25,12.13]}],
+        ["562",{n:"Niger",c:"Niamey",p:[2.11,13.51]}],
+        ["566",{n:"Nigeria",c:"Abuja",p:[7.49,9.06]}],
+        ["578",{n:"Norway",c:"Oslo",p:[10.75,59.91]}],
+        ["586",{n:"Pakistan",c:"Islamabad",p:[73.05,33.69]}],
+        ["591",{n:"Panama",c:"Panama City",p:[-79.52,8.98]}],
+        ["598",{n:"Papua New Guinea",c:"Port Moresby",p:[147.18,-9.44]}],
+        ["600",{n:"Paraguay",c:"Asunción",p:[-57.64,-25.28]}],
+        ["604",{n:"Peru",c:"Lima",p:[-77.04,-12.05]}],
+        ["608",{n:"Philippines",c:"Manila",p:[120.98,14.6]}],
+        ["616",{n:"Poland",c:"Warsaw",p:[21.01,52.23]}],
+        ["620",{n:"Portugal",c:"Lisbon",p:[-9.14,38.74]}],
+        ["624",{n:"Guinea-Bissau",c:"Bissau",p:[-15.6,11.86]}],
+        ["626",{n:"Timor-Leste",c:"Dili",p:[125.57,-8.56]}],
+        ["630",{n:"Puerto Rico",c:"San Juan",p:[-66.11,18.47]}],
+        ["634",{n:"Qatar",c:"Doha",p:[51.53,25.29]}],
+        ["642",{n:"Romania",c:"Bucharest",p:[26.1,44.43]}],
+        ["643",{n:"Russia",c:"Moscow",p:[37.62,55.76]}],
+        ["646",{n:"Rwanda",c:"Kigali",p:[29.87,-1.94]}],
+        ["659",{n:"Saint Kitts and Nevis",c:"Basseterre",p:[-62.72,17.3]}],
+        ["662",{n:"Saint Lucia",c:"Castries",p:[-61.0,14.01]}],
+        ["670",{n:"Saint Vincent and the Grenadines",c:"Kingstown",p:[-61.23,13.16]}],
+        ["674",{n:"San Marino",c:"San Marino",p:[12.45,43.94]}],
+        ["678",{n:"São Tomé and Príncipe",c:"São Tomé",p:[6.73,0.34]}],
+        ["682",{n:"Saudi Arabia",c:"Riyadh",p:[46.72,24.69]}],
+        ["686",{n:"Senegal",c:"Dakar",p:[-17.47,14.69]}],
+        ["688",{n:"Serbia",c:"Belgrade",p:[20.46,44.82]}],
+        ["690",{n:"Seychelles",c:"Victoria",p:[55.45,-4.62]}],
+        ["694",{n:"Sierra Leone",c:"Freetown",p:[-13.23,8.48]}],
+        ["702",{n:"Singapore",c:"Singapore",p:[103.85,1.29]}],
+        ["703",{n:"Slovakia",c:"Bratislava",p:[17.11,48.15]}],
+        ["704",{n:"Vietnam",c:"Hanoi",p:[105.85,21.03]}],
+        ["705",{n:"Slovenia",c:"Ljubljana",p:[14.51,46.06]}],
+        ["706",{n:"Somalia",c:"Mogadishu",p:[45.34,2.05]}],
+        ["710",{n:"South Africa",c:"Pretoria",p:[28.19,-25.75]}],
+        ["716",{n:"Zimbabwe",c:"Harare",p:[31.05,-17.83]}],
+        ["724",{n:"Spain",c:"Madrid",p:[-3.7,40.42]}],
+        ["728",{n:"South Sudan",c:"Juba",p:[31.58,4.85]}],
+        ["729",{n:"Sudan",c:"Khartoum",p:[32.53,15.59]}],
+        ["732",{n:"Western Sahara",c:"Laayoune",p:[-13.2,27.15]}],
+        ["740",{n:"Suriname",c:"Paramaribo",p:[-55.17,5.84]}],
+        ["748",{n:"Eswatini",c:"Mbabane",p:[31.13,-26.32]}],
+        ["752",{n:"Sweden",c:"Stockholm",p:[18.07,59.33]}],
+        ["756",{n:"Switzerland",c:"Bern",p:[7.45,46.95]}],
+        ["760",{n:"Syria",c:"Damascus",p:[36.29,33.51]}],
+        ["762",{n:"Tajikistan",c:"Dushanbe",p:[68.77,38.56]}],
+        ["764",{n:"Thailand",c:"Bangkok",p:[100.5,13.76]}],
+        ["768",{n:"Togo",c:"Lomé",p:[1.22,6.14]}],
+        ["776",{n:"Tonga",c:"Nukuʻalofa",p:[-175.2,-21.21]}],
+        ["780",{n:"Trinidad and Tobago",c:"Port of Spain",p:[-61.52,10.65]}],
+        ["784",{n:"United Arab Emirates",c:"Abu Dhabi",p:[54.37,24.45]}],
+        ["788",{n:"Tunisia",c:"Tunis",p:[10.18,36.81]}],
+        ["792",{n:"Turkey",c:"Ankara",p:[32.87,39.93]}],
+        ["795",{n:"Turkmenistan",c:"Ashgabat",p:[58.38,37.95]}],
+        ["798",{n:"Tuvalu",c:"Funafuti",p:[179.2,-8.52]}],
+        ["800",{n:"Uganda",c:"Kampala",p:[32.58,0.31]}],
+        ["804",{n:"Ukraine",c:"Kyiv",p:[30.52,50.45]}],
+        ["807",{n:"North Macedonia",c:"Skopje",p:[21.43,42.0]}],
+        ["818",{n:"Egypt",c:"Cairo",p:[31.24,30.04]}],
+        ["826",{n:"United Kingdom",c:"London",p:[-0.13,51.51]}],
+        ["834",{n:"Tanzania",c:"Dodoma",p:[35.74,-6.16]}],
+        ["840",{n:"United States of America",c:"Washington, D.C.",p:[-77.04,38.9]}],
+        ["854",{n:"Burkina Faso",c:"Ouagadougou",p:[-1.52,12.37]}],
+        ["858",{n:"Uruguay",c:"Montevideo",p:[-56.16,-34.88]}],
+        ["860",{n:"Uzbekistan",c:"Tashkent",p:[69.28,41.3]}],
+        ["862",{n:"Venezuela",c:"Caracas",p:[-66.9,10.49]}],
+        ["882",{n:"Samoa",c:"Apia",p:[-171.76,-13.83]}],
+        ["887",{n:"Yemen",c:"Sana'a",p:[44.21,15.35]}],
+        ["894",{n:"Zambia",c:"Lusaka",p:[28.28,-15.42]}],
+        ["-99",{n:"Northern Cyprus",c:"North Nicosia",p:[33.36,35.19]}],
+        ["010",{n:"Antarctica",c:"",p:[0,-90]}]
       ]);
 
       // Load world TopoJSON
@@ -362,11 +542,34 @@
 
           const id = String(d.id);
           const padded = id.padStart(3, '0');
-          const name = countryNames.get(padded) || countryNames.get(id) || 'Unknown territory';
-          tooltip.textContent = name;
+          const info = countryData.get(padded) || countryData.get(id);
+          const name = info ? info.n : 'Unknown territory';
+          const capital = info ? info.c : '';
+
+          tooltipName.textContent = name;
+          tooltipCapital.textContent = capital ? 'Capital: ' + capital : '';
           tooltip.classList.add('visible');
           tooltip.style.left = (event.clientX + 16) + 'px';
           tooltip.style.top = (event.clientY - 16) + 'px';
+
+          // Draw capital dot
+          removeCapitalDot();
+          if (info && info.c && info.p) {
+            const coords = info.p;
+            const projected = projection(coords);
+            if (projected) {
+              capitalDot = g.append('circle')
+                .attr('class', 'capital-dot')
+                .attr('cx', projected[0])
+                .attr('cy', projected[1])
+                .attr('r', 4);
+              capitalLabel = g.append('text')
+                .attr('class', 'capital-label')
+                .attr('x', projected[0] + 7)
+                .attr('y', projected[1] + 4)
+                .text(capital);
+            }
+          }
 
           if (!found.has(d.id)) {
             found.add(d.id);
@@ -379,6 +582,11 @@
         deselect();
       });
 
+      function removeCapitalDot() {
+        if (capitalDot) { capitalDot.remove(); capitalDot = null; }
+        if (capitalLabel) { capitalLabel.remove(); capitalLabel = null; }
+      }
+
       function deselect() {
         if (activeFeature) {
           countryPaths.filter(f => f === activeFeature)
@@ -387,6 +595,7 @@
             .attr('stroke-width', 0.5);
           activeFeature = null;
         }
+        removeCapitalDot();
         tooltip.classList.remove('visible');
       }
 
@@ -431,6 +640,26 @@
         // Update paths
         g.select('.graticule-path').attr('d', path);
         countryPaths.attr('d', path);
+
+        // Update capital dot position
+        if (capitalDot && activeFeature) {
+          const id = String(activeFeature.id);
+          const padded = id.padStart(3, '0');
+          const info = countryData.get(padded) || countryData.get(id);
+          if (info && info.p) {
+            const coords = info.p;
+            const rotate = projection.rotate();
+            const distance = d3.geoDistance(coords, [-rotate[0], -rotate[1]]);
+            if (distance < Math.PI / 2) {
+              const projected = projection(coords);
+              capitalDot.attr('cx', projected[0]).attr('cy', projected[1]).attr('visibility', 'visible');
+              if (capitalLabel) capitalLabel.attr('x', projected[0] + 7).attr('y', projected[1] + 4).attr('visibility', 'visible');
+            } else {
+              capitalDot.attr('visibility', 'hidden');
+              if (capitalLabel) capitalLabel.attr('visibility', 'hidden');
+            }
+          }
+        }
       }
 
       // Zoom controls
