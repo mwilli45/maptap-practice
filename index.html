@@ -399,13 +399,9 @@
       }
 
       // Drag to rotate
-      let dragStartRotate;
       const drag = d3.drag()
-        .on('start', function(event) {
-          dragStartRotate = projection.rotate();
-        })
         .on('drag', function(event) {
-          const r = dragStartRotate;
+          const r = projection.rotate();
           projection.rotate([
             r[0] + event.dx * sensitivity,
             Math.max(-90, Math.min(90, r[1] - event.dy * sensitivity)),
