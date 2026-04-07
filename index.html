@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MapTap Practice - Interactive 3D Globe</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #08080e;
+      color: #e0e0e0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      user-select: none;
+    }
+
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 28px;
+      background: rgba(8, 8, 14, 0.8);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .logo {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .logo span { color: #6c8cff; }
+
+    .stats {
+      font-size: 13px;
+      color: #555;
+      display: flex;
+      gap: 20px;
+    }
+
+    .stats strong { color: #6c8cff; font-weight: 600; }
+
+    #globe-container {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    canvas {
+      cursor: grab;
+    }
+
+    canvas:active {
+      cursor: grabbing;
+    }
+
+    .country-path {
+      cursor: pointer;
+    }
+
+    #tooltip {
+      position: fixed;
+      pointer-events: none;
+      background: rgba(12, 12, 22, 0.95);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(108, 140, 255, 0.35);
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      opacity: 0;
+      transform: translateY(6px) scale(0.95);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      z-index: 200;
+      white-space: nowrap;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(108, 140, 255, 0.1);
+    }
+
+    #tooltip.visible {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+
+    .controls {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 100;
+    }
+
+    .controls button {
+      width: 40px;
+      height: 40px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      background: rgba(12, 12, 22, 0.9);
+      backdrop-filter: blur(8px);
+      color: #777;
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+
+    .controls button:hover {
+      color: #fff;
+      border-color: rgba(108, 140, 255, 0.4);
+      background: rgba(20, 20, 40, 0.95);
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      color: #333;
+      z-index: 100;
+      letter-spacing: 0.3px;
+    }
+
+    #loading {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 15px;
+      color: #444;
+      z-index: 300;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .spinner {
+      width: 22px;
+      height: 22px;
+      border: 2px solid #222;
+      border-top-color: #6c8cff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Atmosphere glow */
+    .atmosphere {
+      filter: drop-shadow(0 0 40px rgba(108, 140, 255, 0.08))
+             drop-shadow(0 0 80px rgba(108, 140, 255, 0.04));
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">Map<span>Tap</span> Practice</div>
+    <div class="stats">
+      <span>Found: <strong id="count">0</strong> / <strong id="total">0</strong></span>
+    </div>
+  </header>
+
+  <div id="globe-container"></div>
+
+  <div id="tooltip" id="tooltip-name"></div>
+
+  <div class="controls">
+    <button id="zoom-in" title="Zoom in">+</button>
+    <button id="zoom-out" title="Zoom out">&minus;</button>
+    <button id="reset" title="Reset view">&#8634;</button>
+  </div>
+
+  <div class="hint">Drag to rotate &middot; Scroll to zoom &middot; Click a country</div>
+
+  <div id="loading">
+    <span class="spinner"></span>Loading globe...
+  </div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://unpkg.com/topojson-client@3"></script>
+  <script>
+    (async function() {
+      const container = document.getElementById('globe-container');
+      const tooltip = document.getElementById('tooltip');
+      const countEl = document.getElementById('count');
+      const totalEl = document.getElementById('total');
+      const loading = document.getElementById('loading');
+
+      let width = window.innerWidth;
+      let height = window.innerHeight;
+      const sensitivity = 0.4;
+
+      // Globe projection
+      const projection = d3.geoOrthographic()
+        .scale(Math.min(width, height) / 2.4)
+        .center([0, 0])
+        .rotate([0, -20])
+        .translate([width / 2, height / 2]);
+
+      const initialScale = projection.scale();
+      const path = d3.geoPath().projection(projection);
+
+      // SVG setup
+      const svg = d3.select(container)
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('class', 'atmosphere');
+
+      const g = svg.append('g');
+
+      // Ocean / globe background
+      g.append('circle')
+        .attr('cx', width / 2)
+        .attr('cy', height / 2)
+        .attr('r', projection.scale())
+        .attr('fill', '#0c0c1a')
+        .attr('stroke', '#1a1a30')
+        .attr('stroke-width', 1.5)
+        .attr('class', 'globe-bg');
+
+      // Graticule
+      const graticule = d3.geoGraticule10();
+      g.append('path')
+        .datum(graticule)
+        .attr('d', path)
+        .attr('fill', 'none')
+        .attr('stroke', '#12122a')
+        .attr('stroke-width', 0.4)
+        .attr('class', 'graticule-path');
+
+      // ISO 3166-1 numeric ID → country name lookup
+      const countryNames = new Map([
+        ["004","Afghanistan"],["008","Albania"],["012","Algeria"],["016","American Samoa"],
+        ["020","Andorra"],["024","Angola"],["028","Antigua and Barbuda"],["031","Azerbaijan"],
+        ["032","Argentina"],["036","Australia"],["040","Austria"],["044","Bahamas"],
+        ["048","Bahrain"],["050","Bangladesh"],["051","Armenia"],["052","Barbados"],
+        ["056","Belgium"],["060","Bermuda"],["064","Bhutan"],["068","Bolivia"],
+        ["070","Bosnia and Herzegovina"],["072","Botswana"],["076","Brazil"],
+        ["084","Belize"],["090","Solomon Islands"],["096","Brunei"],["100","Bulgaria"],
+        ["104","Myanmar"],["108","Burundi"],["112","Belarus"],["116","Cambodia"],
+        ["120","Cameroon"],["124","Canada"],["132","Cape Verde"],["140","Central African Republic"],
+        ["144","Sri Lanka"],["148","Chad"],["152","Chile"],["156","China"],
+        ["158","Taiwan"],["170","Colombia"],["174","Comoros"],["178","Congo"],
+        ["180","Dem. Rep. Congo"],["188","Costa Rica"],["191","Croatia"],["192","Cuba"],
+        ["196","Cyprus"],["203","Czech Republic"],["204","Benin"],["208","Denmark"],
+        ["212","Dominica"],["214","Dominican Republic"],["218","Ecuador"],["222","El Salvador"],
+        ["226","Equatorial Guinea"],["231","Ethiopia"],["232","Eritrea"],["233","Estonia"],
+        ["242","Fiji"],["246","Finland"],["250","France"],["254","French Guiana"],
+        ["262","Djibouti"],["266","Gabon"],["268","Georgia"],["270","Gambia"],
+        ["275","Palestine"],["276","Germany"],["288","Ghana"],["296","Kiribati"],
+        ["300","Greece"],["308","Grenada"],["320","Guatemala"],["324","Guinea"],
+        ["328","Guyana"],["332","Haiti"],["340","Honduras"],["348","Hungary"],
+        ["352","Iceland"],["356","India"],["360","Indonesia"],["364","Iran"],
+        ["368","Iraq"],["372","Ireland"],["376","Israel"],["380","Italy"],
+        ["384","Ivory Coast"],["388","Jamaica"],["392","Japan"],["398","Kazakhstan"],
+        ["400","Jordan"],["404","Kenya"],["408","North Korea"],["410","South Korea"],
+        ["414","Kuwait"],["417","Kyrgyzstan"],["418","Laos"],["422","Lebanon"],
+        ["426","Lesotho"],["428","Latvia"],["430","Liberia"],["434","Libya"],
+        ["438","Liechtenstein"],["440","Lithuania"],["442","Luxembourg"],["450","Madagascar"],
+        ["454","Malawi"],["458","Malaysia"],["462","Maldives"],["466","Mali"],
+        ["470","Malta"],["478","Mauritania"],["480","Mauritius"],["484","Mexico"],
+        ["492","Monaco"],["496","Mongolia"],["498","Moldova"],["499","Montenegro"],
+        ["504","Morocco"],["508","Mozambique"],["512","Oman"],["516","Namibia"],
+        ["520","Nauru"],["524","Nepal"],["528","Netherlands"],["540","New Caledonia"],
+        ["548","Vanuatu"],["554","New Zealand"],["558","Nicaragua"],["562","Niger"],
+        ["566","Nigeria"],["578","Norway"],["586","Pakistan"],["591","Panama"],
+        ["598","Papua New Guinea"],["600","Paraguay"],["604","Peru"],["608","Philippines"],
+        ["616","Poland"],["620","Portugal"],["624","Guinea-Bissau"],["626","Timor-Leste"],
+        ["630","Puerto Rico"],["634","Qatar"],["642","Romania"],["643","Russia"],
+        ["646","Rwanda"],["652","Saint Barthélemy"],["659","Saint Kitts and Nevis"],
+        ["662","Saint Lucia"],["670","Saint Vincent and the Grenadines"],
+        ["674","San Marino"],["678","São Tomé and Príncipe"],["682","Saudi Arabia"],
+        ["686","Senegal"],["688","Serbia"],["690","Seychelles"],["694","Sierra Leone"],
+        ["702","Singapore"],["703","Slovakia"],["704","Vietnam"],["705","Slovenia"],
+        ["706","Somalia"],["710","South Africa"],["716","Zimbabwe"],["724","Spain"],
+        ["728","South Sudan"],["729","Sudan"],["732","Western Sahara"],["740","Suriname"],
+        ["748","Eswatini"],["752","Sweden"],["756","Switzerland"],["760","Syria"],
+        ["762","Tajikistan"],["764","Thailand"],["768","Togo"],["776","Tonga"],
+        ["780","Trinidad and Tobago"],["784","United Arab Emirates"],["788","Tunisia"],
+        ["792","Turkey"],["795","Turkmenistan"],["798","Tuvalu"],["800","Uganda"],
+        ["804","Ukraine"],["807","North Macedonia"],["818","Egypt"],
+        ["826","United Kingdom"],["834","Tanzania"],["840","United States of America"],
+        ["854","Burkina Faso"],["858","Uruguay"],["860","Uzbekistan"],["862","Venezuela"],
+        ["882","Samoa"],["887","Yemen"],["894","Zambia"],
+        ["-99","Northern Cyprus"],["010","Antarctica"]
+      ]);
+
+      // Load world TopoJSON
+      const world = await d3.json('https://unpkg.com/world-atlas@2/countries-110m.json');
+
+      loading.style.display = 'none';
+
+      const countries = topojson.feature(world, world.objects.countries);
+      totalEl.textContent = countries.features.length;
+
+      const found = new Set();
+      let activeFeature = null;
+
+      // Draw countries
+      const countryPaths = g.selectAll('.country')
+        .data(countries.features)
+        .enter()
+        .append('path')
+        .attr('class', 'country')
+        .attr('d', path)
+        .attr('fill', '#1a1a30')
+        .attr('stroke', '#2a2a4a')
+        .attr('stroke-width', 0.5)
+        .style('cursor', 'pointer')
+        .on('mouseover', function(event, d) {
+          const isVisible = isCountryVisible(d);
+          if (!isVisible) return;
+          if (d !== activeFeature) {
+            d3.select(this)
+              .attr('fill', '#252550')
+              .attr('stroke', '#3a3a6a')
+              .attr('stroke-width', 0.8);
+          }
+        })
+        .on('mouseout', function(event, d) {
+          if (d !== activeFeature) {
+            d3.select(this)
+              .attr('fill', '#1a1a30')
+              .attr('stroke', '#2a2a4a')
+              .attr('stroke-width', 0.5);
+          }
+        })
+        .on('click', function(event, d) {
+          if (!isCountryVisible(d)) return;
+          event.stopPropagation();
+
+          // Deselect previous
+          if (activeFeature) {
+            countryPaths.filter(f => f === activeFeature)
+              .attr('fill', '#1a1a30')
+              .attr('stroke', '#2a2a4a')
+              .attr('stroke-width', 0.5);
+          }
+
+          activeFeature = d;
+          d3.select(this)
+            .attr('fill', '#2a2a6e')
+            .attr('stroke', '#6c8cff')
+            .attr('stroke-width', 1.5)
+            .raise();
+
+          const id = String(d.id);
+          const padded = id.padStart(3, '0');
+          const name = countryNames.get(padded) || countryNames.get(id) || 'Unknown territory';
+          tooltip.textContent = name;
+          tooltip.classList.add('visible');
+          tooltip.style.left = (event.clientX + 16) + 'px';
+          tooltip.style.top = (event.clientY - 16) + 'px';
+
+          if (!found.has(d.id)) {
+            found.add(d.id);
+            countEl.textContent = found.size;
+          }
+        });
+
+      // Click globe background to deselect
+      svg.on('click', function() {
+        deselect();
+      });
+
+      function deselect() {
+        if (activeFeature) {
+          countryPaths.filter(f => f === activeFeature)
+            .attr('fill', '#1a1a30')
+            .attr('stroke', '#2a2a4a')
+            .attr('stroke-width', 0.5);
+          activeFeature = null;
+        }
+        tooltip.classList.remove('visible');
+      }
+
+      // Check if a country's centroid is on the visible side of the globe
+      function isCountryVisible(d) {
+        const centroid = d3.geoCentroid(d);
+        const rotate = projection.rotate();
+        const distance = d3.geoDistance(centroid, [-rotate[0], -rotate[1]]);
+        return distance < Math.PI / 2;
+      }
+
+      // Drag to rotate
+      let dragStartRotate;
+      const drag = d3.drag()
+        .on('start', function(event) {
+          dragStartRotate = projection.rotate();
+        })
+        .on('drag', function(event) {
+          const r = dragStartRotate;
+          projection.rotate([
+            r[0] + event.dx * sensitivity,
+            Math.max(-90, Math.min(90, r[1] - event.dy * sensitivity)),
+            r[2]
+          ]);
+          render();
+        });
+
+      svg.call(drag);
+
+      // Scroll to zoom
+      svg.on('wheel.zoom', function(event) {
+        event.preventDefault();
+        const currentScale = projection.scale();
+        const factor = event.deltaY > 0 ? 0.92 : 1.08;
+        const newScale = Math.max(initialScale * 0.5, Math.min(initialScale * 8, currentScale * factor));
+        projection.scale(newScale);
+        render();
+      }, { passive: false });
+
+      // Render everything
+      function render() {
+        // Update globe background circle
+        g.select('.globe-bg')
+          .attr('r', projection.scale());
+
+        // Update paths
+        g.select('.graticule-path').attr('d', path);
+        countryPaths.attr('d', path);
+      }
+
+      // Zoom controls
+      document.getElementById('zoom-in').addEventListener('click', () => {
+        const s = Math.min(initialScale * 8, projection.scale() * 1.4);
+        projection.scale(s);
+        render();
+      });
+
+      document.getElementById('zoom-out').addEventListener('click', () => {
+        const s = Math.max(initialScale * 0.5, projection.scale() * 0.7);
+        projection.scale(s);
+        render();
+      });
+
+      document.getElementById('reset').addEventListener('click', () => {
+        projection.rotate([0, -20]).scale(initialScale);
+        deselect();
+        found.clear();
+        countEl.textContent = '0';
+        render();
+      });
+
+      // Resize
+      window.addEventListener('resize', () => {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        svg.attr('width', width).attr('height', height);
+        const newInitialScale = Math.min(width, height) / 2.4;
+        const ratio = projection.scale() / initialScale;
+        projection.translate([width / 2, height / 2]).scale(newInitialScale * ratio);
+        g.select('.globe-bg')
+          .attr('cx', width / 2)
+          .attr('cy', height / 2);
+        render();
+      });
+
+    })();
+  </script>
+</body>
+</html>
